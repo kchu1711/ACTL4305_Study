@@ -1,0 +1,195 @@
+---
+title: "DQ1"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Q1 Question
+Have fine particle (PM2.5) outdoor air pollution decreased between 1999 and 2012?
+
+# Q2 Data Import and Cleaning {.tabset}
+
+## Import packages
+
+```{r import libraries}
+library(lubridate)
+library(knitr)
+library(data.table)
+library(formattable)
+library(plyr)
+```
+
+## Import the data
+- Download the two data files into the working directory from [here](https://unsw-my.sharepoint.com/:f:/g/personal/z3509662_ad_unsw_edu_au/EnKC86EULN5Ji7Z0ig6b7j4BE-HJT5QgP_--tvc10HeBGg?e=5SQlIJ), which are for the two years, 1999 and 2012
+- Import the data using read.delim with the delimiter "|". 
+- Skip the first two rows since it is not data values - duplicate column names
+- Since missing values are indicated by "", set na = ""
+- Attach the columns names back to the dataset by storing column names in a vector and then setting col.names = cnames
+
+```{r import data}
+setwd("~/Coding/actl4305/actl4305/Discussion Questions/DQ1")
+cnames <- read.delim(file = "Airpollution_1999.txt", header = FALSE, sep = "|", nrows = 1)
+
+air_1999 <- read.delim(file = "Airpollution_1999.txt", header = FALSE, sep = "|", na = "", skip = 2, col.names = cnames)
+air_2012 <- read.delim(file = "Airpollution_2012.txt", header = TRUE, sep = "|", na = "", skip = 2, col.names = cnames)
+```
+
+Check the head of data to have a look at the data and check it was imported properly
+```{r}
+head(air_1999)
+head(air_2012)
+```
+
+Check proportion of missing values - since proportion is low, we will ignore missing values and remove those rows
+```{r}
+mean(is.na(air_1999$Sample.Value))
+mean(is.na(air_2012$Sample.Value))
+```
+
+Check if there are any duplicate rows
+```{r}
+duplicate_1999 <- air_1999[duplicated(air_1999),]
+sum(duplicated(duplicate_1999))
+
+duplicate_2012 <- air_2012[duplicated(air_2012),]
+sum(duplicated(duplicate_2012))
+```
+
+Check that Sample Values make sense - only 2012 has 2% of data with negative values whilst 1999 doesn't
+```{r}
+nrow(filter(air_2012, Sample.Value < 0)) / nrow(air_2012)
+nrow(filter(air_1999, Sample.Value < 0)) / nrow(air_1999)
+```
+
+## Data Cleaning
+
+The following data cleaning steps were then applied:
+- Remove the first row as it is the column names duplicated
+- Remove the last row as it identifies the number of rows and contains no data
+- Merge the two datasets since the columns are consistent and data information is provided by the 'Date' variable
+- Convert Date from character to date value
+- Split Date into a Year and Month categorical Variable
+- Convert character variables into a categorical Variable including State.Code, County.Code, Site.ID, Method and POC
+```{r data cleaning}
+colsasfactors<- c("State.Code", "County.Code", "Site.ID", "Method","POC")
+
+combined <- rbind(slice(air_1999,2:(nrow(air_1999)-1)),
+                  slice(air_2012,2:(nrow(air_2012)-1))
+                  ) 
+
+combined <- combined %>%
+  mutate(Date = as.Date(as.character(combined$Date), "%Y%m%d"),
+         Year = as.factor(year(Date)),
+         Month = as.factor(month(Date)),
+         across(colsasfactors, factor)) %>%
+  drop_na(Sample.Value) %>%
+  select(-Date)
+
+
+
+```
+
+## Check the data
+```{r}
+data_check <- combined %>%
+  summarise_all(n_distinct) %>%
+  rbind(colSums(is.na(combined)))
+row.names(data_check) <- c("Unique Values", "Missing Values")
+data_check <- as.data.frame(t(data_check))
+formattable(data_check)
+
+
+```
+
+## Removal of Variables and NA rows
+- Removal of variables irrelevant to our study such as:
+  - Qualifiers 1-10: These indicate why sample values may be missing or out of the ordinary
+  - Null Data Code: Indicates why data was missing
+- Removal of variables with only NA values were removed including Monitor.Protocol..MP..ID, Alternate.Method.Detectable.Limit, Uncertainty
+- Removal of variables with majority of values being NA including Sampling.Frequency
+- Removal of variables with only 1 unique value including X..RD, Action.Code, Parameter, Sample.Duration, Unit
+- Removal of rows with Sample Value being null or negative as this is not valid data
+```{r}
+combined2 <- combined %>%
+  select(-starts_with("Qualifier")) %>%
+  select(-c("X..RD",
+            "Action.Code", 
+            "Parameter", 
+            "Sample.Duration", 
+            "Unit",
+            "Null.Data.Code",
+            "Sampling.Frequency",
+            "Monitor.Protocol..MP..ID", 
+            "Alternate.Method.Detectable.Limit",
+            "Uncertainty")) %>%
+  filter(!is.na(Sample.Value), Sample.Value > 0)
+```
+
+# Q3 Data Issues
+- Missing values 
+  - The proportion of data with missing values for Sample.Value is low, 0.1125683 for 1999 and 0.05607201 for 2012.
+  - I have ignored the missing values and removed these rows
+- Variables with only NA values or only 1 unique value was removed
+- Variables that were irrelevant to the question was removed as they didn't provide relevant information
+- Some rows had Sample Value being null or negative
+  - These rows were ignored and removed as they are not valid data
+  
+# Q4 What is your answer to your question? And how do you reach that answer? {.tabset}
+## Overall Boxplot
+The boxplot reveals differences in distribution between the two years.
+It appears that on average, the levels of PM in 2012 are lower than they were in 1999. 
+It can also be seen that there is greater variation in PM in 2012.
+```{r}
+combined2 %>%
+  ggplot(aes(Year, Sample.Value)) +
+  geom_boxplot(aes(fill = Year, color = Year))
+```
+
+## Distribution Density by Year
+Similar to our findings above, it appears that whilst the mean of the 2012 data is lower, there is greater variance in PM levels.
+```{r}
+mu <- ddply(combined2 , "Year", summarise, grp.mean=mean(Sample.Value))
+combined2 %>%
+  ggplot(aes(Sample.Value, col = Year)) +
+  geom_density(fill="white", alpha=0.5, position="dodge")+
+  geom_vline(data = mu, aes(xintercept=grp.mean, color=Year), linetype="dashed")+
+  xlim(0, 100)
+```
+
+
+## Mean PM Levels by Month
+On a per month basis, it can be seen that PM levels are lower for every month in 2012 compared to 1999.
+It should be noted that there was no data collected for November and December
+```{r}
+combined2 %>%
+  group_by(Year, Month) %>%
+  dplyr::summarise(Mean_PM_Levels = mean(Sample.Value)) %>%
+  ggplot(aes(x = Month, y = Mean_PM_Levels, fill = Year)) +
+  geom_col()
+```
+
+## Mean PM Levels by State
+On a state basis, it can be seen that mean PM levels are lower for every state in 2012 compared to 1999. 
+```{r}
+combined2 %>%
+  group_by(Year, State.Code) %>%
+  dplyr::summarise(Mean_PM_Levels = mean(Sample.Value)) %>%
+  ggplot(aes(x = State.Code, y = Mean_PM_Levels, fill = Year)) +
+  geom_col()
+```
+
+# Q5 Follow up questions
+
+- Whether the level of air pollution is also affected by and whether this affects the comparability of data:
+  - Method of collection
+  - Duration of measurement
+- Improve visualisation by depicting levels of air pollution of a map of US which may reveal any geographical patterns 
+- Whether the Clean Air Act is the only influence on lower air pollution levels? Perhaps other laws / improvement in technology?
